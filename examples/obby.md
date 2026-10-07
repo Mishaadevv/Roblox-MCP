@@ -1,12 +1,12 @@
-# Пример: генерация обби из нуля
+# Example: generating an obby from scratch
 
-Агент (Claude / Cursor) с подключённым `roblox-mcp`:
+An agent (Claude / Cursor) with `roblox-mcp` connected:
 
-> Ты: Открой Studio и сделай обби из 10 платформ лесенкой.
+> You: Open Studio and build an obby of 10 stair-step platforms.
 >
-> Агент:
-> 1. `studio_status` → Studio не запущена → `studio_launch`
-> 2. `bridge_status` → ждёт `pluginConnected: true`
+> Agent:
+> 1. `studio_status` → Studio not running → `studio_launch`
+> 2. `bridge_status` → waits for `pluginConnected: true`
 > 3. `execute_luau`:
 > ```lua
 > local base = Vector3.new(0, 5, 0)
@@ -27,11 +27,10 @@
 > spawn.Parent = workspace
 > return "10 stages + spawn created"
 > ```
-> 4. `create_script` (Script в ServerScriptService, очки за касание):
+> 4. `create_script` (Script in ServerScriptService, touch scoring):
 > ```lua
 > local Players = game:GetService("Players")
 > local points = {}
-> workspace.ChildAdded:Connect(function() end)
 > for _, p in workspace:GetChildren() do
 >   if p.Name:match("^Stage") and p:IsA("BasePart") then
 >     p.Touched:Connect(function(hit)

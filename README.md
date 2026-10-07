@@ -1,50 +1,48 @@
 # Roblox-MCP
 
-**MCP-сервер, дающий ИИ-агентам полный контроль над Roblox Studio**: запуск/закрытие Studio, открытие проектов, выполнение любого Luau-кода, просмотр и постройка сцены, скрипты, GUI, свет, камера, Toolbox (вставка ассетов по ID), Play Solo / Run для проверки игры, чтение Output-лога. Всё с поддержкой Ctrl+Z.
+**An MCP server that gives AI agents full control over Roblox Studio**: launch/close Studio, open projects, execute arbitrary Luau, view and build scenes, write scripts, create GUI, configure lighting/camera, insert Toolbox assets, run Play Solo / Run playtests and read Output. Everything is undoable (Ctrl+Z).
 
-> 🇷🇺 Этот README на русском. Краткая версия на английском — ниже в разделе [English](#english-short-version).
-
-## Как это работает
+## How it works
 
 ```
-ИИ-агент (Claude / Cursor / любой MCP-клиент)
+AI agent (Claude / Cursor / any MCP client)
    │  MCP (stdio)
    ▼
-roblox-mcp (Node.js) ── child_process ──► RobloxStudioBeta.exe (запуск/открытие/закрытие)
+roblox-mcp (Node.js) ── child_process ──► RobloxStudioBeta.exe (launch / open / close)
    │  HTTP localhost (127.0.0.1:8090)
    ▼
-Плагин MCPBridge.luau внутри Roblox Studio (HttpService long-poll)
-   └── исполняет команды через обычный Roblox API: Instance, Script.Source,
-       Selection, RunService, InsertService (Toolbox), Lighting, камера...
+MCPBridge.luau plugin inside Roblox Studio (HttpService long-poll)
+   └── executes commands through the regular Roblox API: Instance, Script.Source,
+       Selection, RunService, InsertService (Toolbox), Lighting, Camera...
 ```
 
-Почему так: плагины Studio **не принимают** входящие соединения, но **могут сами** ходить в localhost через `HttpService`. Поэтому плагин раз в ~25 сек (long-poll) спрашивает у бриджа «есть команды?», выполняет их и возвращает результат через `POST /result`.
+Why this shape: Studio plugins **cannot accept** inbound connections, but they **can** reach localhost via `HttpService`. So the plugin long-polls the bridge ("any commands?"), executes them, and posts results back via `POST /result`.
 
-## Возможности (40 инструментов)
+## Features (40 tools)
 
-| Группа | Инструменты |
+| Group | Tools |
 |---|---|
 | Studio | `studio_status`, `studio_launch`, `studio_open_place`, `studio_close`, `studio_list_places` |
-| Мост | `bridge_status` |
-| Полный доступ | `execute_luau` — любой Luau-код в контексте Studio (Command Bar на стероидах) |
-| Сцена | `get_scene`, `get_instance`, `create_instance`, `set_property`, `set_properties`, `delete_instance`, `rename_instance`, `reparent_instance`, `duplicate_instance`, `get_selection`, `set_selection` |
-| Скрипты | `list_scripts`, `read_script`, `write_script`, `create_script`, `delete_script`, `grep_scripts` |
-| Проверка игры | `play_solo` (F5), `run_game` (F8), `stop_playtest`, `get_play_state`, `get_output`, `clear_output` |
-| GUI/мир | `create_gui`, `insert_asset` (Toolbox по assetId), `save_place`, `get_camera`, `set_camera`, `get_lighting`, `set_lighting`, `get_workspace_info`, `undo`, `redo` |
+| Bridge | `bridge_status` |
+| Full access | `execute_luau` — any Luau in Studio context (a Command Bar on steroids) |
+| Scene | `get_scene`, `get_instance`, `create_instance`, `set_property`, `set_properties`, `delete_instance`, `rename_instance`, `reparent_instance`, `duplicate_instance`, `get_selection`, `set_selection` |
+| Scripts | `list_scripts`, `read_script`, `write_script`, `create_script`, `delete_script`, `grep_scripts` |
+| Playtesting | `play_solo` (F5), `run_game` (F8), `stop_playtest`, `get_play_state`, `get_output`, `clear_output` |
+| GUI / world | `create_gui`, `insert_asset` (Toolbox by assetId), `save_place`, `get_camera`, `set_camera`, `get_lighting`, `set_lighting`, `get_workspace_info`, `undo`, `redo` |
 
-Значения свойств поддерживают типы Roblox через encoding:
-`{"__type":"Vector3","value":[10,5,0]}`, `Color3` (RGB 0–255), `UDim2`, `CFrame` (12 чисел), `BrickColor` (`{"__type":"BrickColor","value":"Bright red"}`), Enum (`"Enum.Material.SmoothPlastic"`).
+Property values support Roblox types via encoding:
+`{"__type":"Vector3","value":[10,5,0]}`, `Color3` (RGB 0–255), `UDim2`, `CFrame` (12 numbers), `BrickColor` (`{"__type":"BrickColor","value":"Bright red"}`), Enums (`"Enum.Material.SmoothPlastic"`).
 
-## Быстрый старт
+## Quick start
 
-### 1. Требования
+### 1. Requirements
 
-- Windows 10/11 (macOS частично: запуск Studio через CLI отличается, бридж и плагин работают так же)
+- Windows 10/11 (macOS partially supported: Studio CLI differs, bridge + plugin work the same)
 - Node.js 18+
-- Установленный Roblox Studio
-- Любой MCP-клиент: Claude Desktop, Cursor, VS Code (Copilot / Cline), Windsurf…
+- Roblox Studio installed
+- Any MCP client: Claude Desktop, Cursor, VS Code (Copilot / Cline), Windsurf…
 
-### 2. Установка сервера
+### 2. Install the server
 
 ```powershell
 git clone https://github.com/<you>/Roblox-MCP.git
@@ -53,27 +51,27 @@ npm install
 npm run build
 ```
 
-Проверка без Studio (бридж должен ответить `ok:true`):
+Smoke-test without Studio (the bridge should answer `ok:true`):
 
 ```powershell
-$env:ROBLOX_BRIDGE_PORT=8090
 node scripts/test-bridge.mjs
+node scripts/mcp-check.mjs   # full MCP roundtrip over stdio
 ```
 
-### 3. Установка плагина в Studio
+### 3. Install the Studio plugin
 
-1. Скопируй `plugin/MCPBridge.luau` в папку плагинов:
-   - Windows: `%LOCALAPPDATA%\Roblox\Plugins\MCPBridge.luau` (создай папку, если нет)
+1. Copy `plugin/MCPBridge.luau` into the plugins folder:
+   - Windows: `%LOCALAPPDATA%\Roblox\Plugins\MCPBridge.luau` (create the folder if missing)
    - macOS: `~/Documents/Roblox/Plugins/MCPBridge.luau`
-2. Перезапусти Roblox Studio, открой любой place.
-3. При первом HTTP-запросе Studio спросит разрешение для localhost — разреши (или в Plugin Management → MCPBridge).
-4. В Output должно появиться `[MCP] Connected to bridge at http://127.0.0.1:8090`.
-5. (Опционально, если задан `ROBLOX_MCP_API_KEY`) в View → Command Bar выполни:
+2. Restart Roblox Studio and open any place.
+3. On its first HTTP request Studio asks for localhost permission — allow it (or via Plugin Management → MCPBridge).
+4. Output should show `[MCP] Connected to bridge at http://127.0.0.1:8090`.
+5. (Optional, if `ROBLOX_MCP_API_KEY` is set) run in View → Command Bar:
    ```lua
-   _G.MCP_SetApiKey("твой-ключ")
+   _G.MCP_SetApiKey("your-key-here")
    ```
 
-### 4. Подключение к ИИ-клиенту
+### 4. Connect your AI client
 
 **Claude Desktop** (`%APPDATA%\Claude\claude_desktop_config.json`):
 
@@ -82,111 +80,101 @@ node scripts/test-bridge.mjs
   "mcpServers": {
     "roblox": {
       "command": "node",
-      "args": ["C:/Users/<ты>/Documents/Roblox-MCP/dist/index.js"],
+      "args": ["C:/Users/<you>/Documents/Roblox-MCP/dist/index.js"],
       "env": { "ROBLOX_BRIDGE_PORT": "8090" }
     }
   }
 }
 ```
 
-**Cursor / VS Code (mcp.json)** — см. `examples/mcp.json`.
+**Cursor / VS Code (mcp.json)** — see `examples/mcp.json`.
 
-Перезапусти клиент. Агент увидит ~40 инструментов `studio_*`, `execute_luau`, `get_scene`, …
+Restart the client. The agent will see ~40 tools: `studio_*`, `execute_luau`, `get_scene`, …
 
-## Примеры запросов агенту
+## Example prompts for the agent
 
-- «Запусти Studio и открой `C:\Games\MyObby.rbxl`»
-- «Покажи структуру Workspace на 2 уровня»
-- «Создай обби: 10 платформ лесенкой + SpawnLocation + скрипт выдачи очков»
-- «Сделай главное меню: ScreenGui с кнопками Играть и Магазин»
-- «Вставь ассет 12345678 из Toolbox в Workspace»
-- «Запусти Play Solo на 5 секунд, покажи Output и останови»
-- «Найди все скрипты со словом `Damage` и покажи первое совпадение»
-- «Поставь ClockTime 14, Brightness 3, туман подальше»
+- "Launch Studio and open `C:\Games\MyObby.rbxl`"
+- "Show the Workspace structure, 2 levels deep"
+- "Build an obby: 10 stair-step platforms + SpawnLocation + a score script"
+- "Make a main menu: ScreenGui with Play and Shop buttons"
+- "Insert Toolbox asset 12345678 into Workspace"
+- "Run Play Solo for 5 seconds, show me the Output, then stop"
+- "Find all scripts containing `Damage` and show the first match"
+- "Set ClockTime 14, Brightness 3, push the fog further out"
 
-Готовые диалоги — в `examples/`:
-- `examples/obby.md` — генерация обби из нуля
-- `examples/gui-menu.md` — главное меню
-- `examples/debug-loop.md` — цикл «запустил → прочитал Output → починил»
+Ready-made scenarios live in `examples/`:
+- `examples/obby.md` — generating an obby from scratch
+- `examples/gui-menu.md` — a main menu
+- `examples/debug-loop.md` — the "run → read Output → fix" loop
 
-## Переменные окружения
+## Environment variables
 
-| Переменная | Назначение | По умолчанию |
+| Variable | Purpose | Default |
 |---|---|---|
-| `ROBLOX_BRIDGE_PORT` | стартовый порт бриджа (пробует +0…+9) | `8090` |
-| `ROBLOX_MCP_API_KEY` | ключ для `x-api-key` (плагин: `_G.MCP_SetApiKey`) | _(пусто — без авторизации, только localhost)_ |
-| `ROBLOX_TIMEOUT_MS` | таймаут ожидания плагина | `30000` |
-| `ROBLOX_STUDIO_PATH` | путь к `RobloxStudioBeta.exe`, если авто-поиск не нашёл | _(авто)_ |
+| `ROBLOX_BRIDGE_PORT` | bridge start port (probes +0…+9 on conflict) | `8090` |
+| `ROBLOX_MCP_API_KEY` | key for `x-api-key` (plugin: `_G.MCP_SetApiKey`) | _(empty — no auth, localhost only)_ |
+| `ROBLOX_TIMEOUT_MS` | plugin wait timeout | `30000` |
+| `ROBLOX_STUDIO_PATH` | path to `RobloxStudioBeta.exe` if auto-detect fails | _(auto)_ |
 
-## Отладка без MCP (curl)
+No Studio exe yet (fresh install via the bootstrapper)? `studio_launch` starts `RobloxStudioInstaller.exe` automatically, waits for the real exe to appear, then opens your place.
+
+## Debugging without MCP (curl)
 
 ```powershell
-# здоровье бриджа
+# bridge health
 curl http://127.0.0.1:8090/health
-# статус (подключён ли плагин)
+# status (is the plugin connected?)
 curl http://127.0.0.1:8090/status
-# выполнить команду синхронно (ждёт плагин до 30с)
+# run one command synchronously (waits up to 30s for the plugin)
 curl -X POST http://127.0.0.1:8090/command -H "Content-Type: application/json" -d '{"method":"get_workspace_info","params":{}}'
 ```
 
 ## Troubleshooting
 
-| Симптом | Что делать |
+| Symptom | Fix |
 |---|---|
-| `Plugin timeout … Is Roblox Studio open…` | Открой Studio с любым place, проверь `bridge_status`: `pluginConnected` должен быть `true`. Смотри Output → `[MCP]` строки |
-| Плагин не находит бридж | Сначала запусти MCP-сервер (`npm start`), потом Studio. Проверь `curl …/health`. Порты 8090–8099 должны быть свободны |
-| Studio просит HTTP-разрешение | Разреши localhost для плагина (Plugin Management). Без этого плагин не дотянется до бриджа |
-| `studio_launch` → not found | Установи Studio или задай `ROBLOX_STUDIO_PATH` |
-| `insert_asset` fails | Ассет приватный/снят с продажи, либо нет доступа. Публичные free-модели вставляются нормально |
-| `save_place` → saved:false | В этой версии Studio нет скриптового Save API — нажми Ctrl+S. Всё остальное работает |
+| `Plugin timeout … Is Roblox Studio open…` | Open Studio with any place, check `bridge_status`: `pluginConnected` must be `true`. Look for `[MCP]` lines in Output |
+| Plugin can't find the bridge | Start the MCP server first (`npm start`), then Studio. Check `curl …/health`. Ports 8090–8099 must be free |
+| Studio asks for HTTP permission | Allow localhost for the plugin (Plugin Management). Without it the plugin can't reach the bridge |
+| `studio_launch` → not found | Install Studio or set `ROBLOX_STUDIO_PATH` |
+| `insert_asset` fails | Asset is private/off-sale or no access. Public free models insert fine |
+| `save_place` → saved:false | This Studio version has no scriptable Save API — press Ctrl+S. Everything else works |
 
-## Безопасность
+## Security
 
-- Бридж слушает **только** `127.0.0.1`, наружу ничего не торчит.
-- Опциональный API-ключ закрывает бридж даже от других локальных процессов.
-- `execute_luau` выполняет **любой** код в Studio — подключай к агенту только проверенные MCP-клиенты.
-- Все мутации обёрнуты в `ChangeHistoryService` — Ctrl+Z откатывает действия агента.
+- The bridge listens on **`127.0.0.1` only**, nothing is exposed to the network.
+- An optional API key locks the bridge even from other local processes.
+- `execute_luau` runs **arbitrary** code in Studio — only connect trusted MCP clients.
+- All mutations go through `ChangeHistoryService` — Ctrl+Z undoes agent actions.
 
-## Структура репозитория
+## Repository layout
 
 ```
 Roblox-MCP/
 ├── src/
-│   ├── index.ts     # MCP stdio-сервер
-│   ├── bridge.ts    # HTTP-бридж (long-poll) для плагина
-│   ├── studio.ts    # запуск/поиск/закрытие Studio, поиск .rbxl
-│   └── tools.ts     # 40 MCP-инструментов
+│   ├── index.ts     # MCP stdio server
+│   ├── bridge.ts    # HTTP bridge (long-poll) for the plugin
+│   ├── studio.ts    # find/launch/close Studio, scan .rbxl files
+│   └── tools.ts     # 40 MCP tools
 ├── plugin/
-│   └── MCPBridge.luau  # плагин Studio (положить в папку Plugins)
-├── examples/        # mcp.json + сценарии диалогов
-├── scripts/
-│   └── test-bridge.mjs # smoke-тест бриджа без Studio
-└── dist/            # сборка (npm run build)
+│   └── MCPBridge.luau  # Studio plugin (drop into the Plugins folder)
+├── backrooms/       # example game: BACKROOMS Level 0 horror (Rojo project + built .rbxlx)
+├── examples/        # mcp.json + prompt scenarios
+├── scripts/         # smoke tests (bridge + full MCP roundtrip)
+└── dist/            # build output (npm run build)
 ```
 
 ## Roadmap
 
-- [ ] Скриншоты viewport через плагин и возврат картинки агенту
-- [ ] Rojo-синхронизация (править `.lua` файлы напрямую)
-- [ ] Team Create / Open Cloud publish (`publish_place`)
-- [ ] Импорт моделей `.fbx/.obj` и аудио
-- [ ] WebSocket вместо long-poll для меньшей задержки
-- [ ] macOS/Linux CI, подписанный установщик плагина
+- [ ] Viewport screenshots via the plugin, returned to the agent as images
+- [ ] Rojo sync (edit `.lua` files directly)
+- [ ] Team Create / Open Cloud publishing (`publish_place`)
+- [ ] `.fbx`/`.obj` model and audio imports
+- [ ] WebSocket instead of long-poll for lower latency
+- [ ] macOS/Linux CI, signed plugin installer
 
-PR и issue приветствуются.
+PRs and issues welcome.
 
-## Лицензия
+## License
 
-MIT — см. [LICENSE](LICENSE).
-
----
-
-## English (short version)
-
-**Roblox-MCP** — an MCP server giving AI agents full control over Roblox Studio: launch/close Studio, open places, run arbitrary Luau, inspect/build the scene, edit scripts, build GUI, lighting/camera, Toolbox inserts by asset ID, Play Solo/Run playtests, read Output. All edits are undoable (Ctrl+Z).
-
-Architecture: MCP stdio server (Node.js) + local HTTP bridge (127.0.0.1:8090, long-poll) + Studio plugin (`plugin/MCPBridge.luau`, uses HttpService). The plugin polls the bridge because Studio plugins can't accept inbound connections.
-
-Setup: `npm install && npm run build`, copy `plugin/MCPBridge.luau` to `%LOCALAPPDATA%\Roblox\Plugins\`, restart Studio, open any place, point your MCP client at `dist/index.js` (see `examples/mcp.json`). Full guide in Russian above; tool names are self-explanatory English.
-
-License: MIT.
+MIT — see [LICENSE](LICENSE).

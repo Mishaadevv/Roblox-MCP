@@ -1,8 +1,8 @@
-# Пример: главное меню (GUI)
+# Example: main menu (GUI)
 
-> Ты: Сделай главное меню с кнопками Играть и Магазин.
+> You: Make a main menu with Play and Shop buttons.
 
-Агент вызывает один инструмент:
+The agent calls a single tool:
 
 `create_gui`:
 ```json
@@ -23,7 +23,7 @@
           "className": "TextLabel",
           "name": "Title",
           "properties": {
-            "Text": "МОЯ ИГРА",
+            "Text": "MY GAME",
             "Size": { "__type": "UDim2", "value": [0, 400, 0, 80] },
             "Position": { "__type": "UDim2", "value": [0.5, -200, 0.2, 0] },
             "TextScaled": true
@@ -33,7 +33,7 @@
           "className": "TextButton",
           "name": "PlayButton",
           "properties": {
-            "Text": "ИГРАТЬ",
+            "Text": "PLAY",
             "Size": { "__type": "UDim2", "value": [0, 240, 0, 60] },
             "Position": { "__type": "UDim2", "value": [0.5, -120, 0.45, 0] }
           }
@@ -42,7 +42,7 @@
           "className": "TextButton",
           "name": "ShopButton",
           "properties": {
-            "Text": "МАГАЗИН",
+            "Text": "SHOP",
             "Size": { "__type": "UDim2", "value": [0, 240, 0, 60] },
             "Position": { "__type": "UDim2", "value": [0.5, -120, 0.6, 0] }
           }
@@ -53,7 +53,7 @@
 }
 ```
 
-Затем `create_script` (LocalScript в `MainMenu.Background`) — обработчики кликов:
+Then `create_script` (LocalScript inside `MainMenu.Background`) — click handlers:
 
 ```lua
 local play = script.Parent:WaitForChild("PlayButton")

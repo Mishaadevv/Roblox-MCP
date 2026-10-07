@@ -21,6 +21,14 @@ function versionsRoot(): string {
   return "/opt/roblox-studio";
 }
 
+/** Path to the Studio bootstrapper (self-updates, then launches the real exe). */
+export function findStudioInstaller(): string | null {
+  if (process.platform !== "win32") return null;
+  const local = process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local");
+  const cand = path.join(local, "Roblox", "Versions", "RobloxStudioInstaller.exe");
+  return fs.existsSync(cand) ? cand : null;
+}
+
 export function findStudioExe(): string | null {
   const envPath = process.env.ROBLOX_STUDIO_PATH;
   if (envPath && fs.existsSync(envPath)) return envPath;
@@ -78,11 +86,29 @@ export async function studioStatus(): Promise<StudioStatus> {
 }
 
 export async function launchStudio(args: string[] = []): Promise<{ pid: number | null; exePath: string; args: string[] }> {
-  const exe = findStudioExe();
+  let exe = findStudioExe();
   if (!exe) {
-    throw new Error(
-      "RobloxStudioBeta.exe not found. Install Roblox Studio or set ROBLOX_STUDIO_PATH env to its full path."
-    );
+    // Fallback: launch the Studio bootstrapper (self-updates, then drops
+    // RobloxStudioBeta.exe into Versions/). Poll until the real exe appears.
+    const stub = findStudioInstaller();
+    if (!stub) {
+      throw new Error(
+        "RobloxStudioBeta.exe not found. Install Roblox Studio or set ROBLOX_STUDIO_PATH env to its full path."
+      );
+    }
+    const installer = spawn(stub, [], { detached: true, stdio: "ignore" });
+    installer.unref();
+    const deadline = Date.now() + 180_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000));
+      exe = findStudioExe();
+      if (exe) break;
+    }
+    if (!exe) {
+      throw new Error(
+        "Studio installer is still updating (RobloxStudioBeta.exe not present yet). Wait a minute and retry, or set ROBLOX_STUDIO_PATH."
+      );
+    }
   }
   const child = spawn(exe, args, { detached: true, stdio: "ignore", windowsVerbatimArguments: false });
   child.unref();
