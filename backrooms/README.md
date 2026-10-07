@@ -47,7 +47,18 @@ Edit `src/Shared/Config.lua`:
 
 ## Rebuilding the place
 
-Requires [Rojo](https://rojo.space/) 7.x:
+Two ways:
+
+**A. Via MCP into live Studio** (the game builds itself inside your open place):
+
+```powershell
+# 1. Open Roblox Studio (empty Baseplate), allow MCPBridge localhost if asked
+# 2. Run:
+node scripts/build-backrooms-mcp.mjs
+# 3. Watch Studio: 13 scripts appear, then an automatic 15s playtest prints Output
+```
+
+**B. Via Rojo** (offline, no Studio needed — requires [Rojo](https://rojo.space/) 7.x):
 
 ```powershell
 cd backrooms
