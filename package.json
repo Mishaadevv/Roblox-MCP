@@ -1,0 +1,41 @@
+{
+  "name": "roblox-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for AI agents to fully control Roblox Studio — launch/close, open places, execute Luau, inspect/build scenes, scripts, GUI, Toolbox, playtest and more.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "roblox-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test:bridge": "node scripts/test-bridge.mjs",
+    "test:mcp": "node scripts/mcp-check.mjs",
+    "test": "npm run build && node scripts/test-bridge.mjs && node scripts/mcp-check.mjs"
+  },
+  "keywords": [
+    "roblox",
+    "roblox-studio",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "luau",
+    "game-dev"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

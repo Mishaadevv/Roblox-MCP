@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "roblox": {
+      "command": "node",
+      "args": ["C:/Users/Misha Krutoj/Documents/Roblox-MCP/dist/index.js"],
+      "env": {
+        "ROBLOX_BRIDGE_PORT": "8090",
+        "ROBLOX_TIMEOUT_MS": "30000"
+      }
+    }
+  }
+}
