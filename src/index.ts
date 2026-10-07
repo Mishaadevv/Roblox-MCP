@@ -28,7 +28,7 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`[roblox-mcp] MCP stdio server ready (40 tools). Open Roblox Studio + enable MCPBridge plugin.`);
+  console.error(`[roblox-mcp] MCP stdio server ready (50 tools). Open Roblox Studio + enable MCPBridge plugin.`);
 
   const shutdown = () => {
     bridge.close();

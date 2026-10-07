@@ -79,18 +79,20 @@ local function applyLighting()
 end
 
 -- ================= level =================
+print("[Backrooms] remotes OK, generating level...")
 applyLighting()
-local level = LevelGenerator.generate(Config.SEED, workspace)
-LevelState.current = level
-print(
-	"[Backrooms] Level generated (seed "
-		.. level.seed
-		.. ", "
-		.. #level.fixtures
-		.. " fixtures, "
-		.. #level.waters
-		.. " waters)"
-)
+local built: LevelState.Level? = nil
+local genOk, genErr = pcall(function()
+	built = LevelGenerator.generate(Config.SEED, workspace)
+end)
+if not genOk or not built then
+	warn("[Backrooms] procedural generation failed: " .. tostring(genErr) .. " — using fallback arena")
+	built = LevelGenerator.fallback(workspace)
+else
+	print("[Backrooms] level OK (seed " .. (built :: LevelState.Level).seed .. ")")
+end
+LevelState.current = built
+local level = LevelState.current :: LevelState.Level
 
 -- ================= flashlight =================
 local function attachFlashlight(char: Model, plr: Player)

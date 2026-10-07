@@ -23,7 +23,9 @@ console.log("TOOLS_COUNT=" + tools.length);
 const names = tools.map((t) => t.name);
 const bad = tools.filter((t) => !t.inputSchema);
 if (bad.length) throw new Error("tools without schema: " + bad.map((t) => t.name).join(","));
-for (const must of ["studio_launch", "studio_close", "execute_luau", "get_scene", "create_gui", "insert_asset", "play_solo"]) {
+for (const must of ["studio_launch", "studio_close", "execute_luau", "get_scene", "create_gui", "insert_asset", "play_solo",
+  "toolbox_search", "toolbox_info", "bulk_create", "find_instances", "get_children",
+  "playtest", "get_performance", "teleport_player", "respawn_player", "kill_player"]) {
   if (!names.includes(must)) throw new Error("missing tool: " + must);
 }
 console.log("tool schemas OK");
@@ -35,16 +37,18 @@ for (const name of ["bridge_status", "studio_status"]) {
   if (res.isError) throw new Error(`${name} returned error: ${text}`);
 }
 
-// full roundtrip with a simulated Studio plugin
+// full roundtrips with a simulated Studio plugin (answers 3 commands)
 const pluginSim = (async () => {
-  const poll = await fetch(`${BASE}/poll?timeoutMs=15000`);
-  const { command } = await poll.json();
-  if (!command?.id) throw new Error("simulated plugin got no command");
-  await fetch(`${BASE}/result`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: command.id, ok: true, output: { returned: [42], printed: ["hello from studio"] } }),
-  });
+  for (let i = 0; i < 3; i++) {
+    const poll = await fetch(`${BASE}/poll?timeoutMs=15000`);
+    const { command } = await poll.json();
+    if (!command?.id) throw new Error("simulated plugin got no command");
+    await fetch(`${BASE}/result`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: command.id, ok: true, output: { returned: [42], printed: ["hello from studio"] } }),
+    });
+  }
 })();
 
 await sleep(500);
@@ -55,7 +59,27 @@ const round = await client.callTool({
 const roundText = round.content?.[0]?.text ?? "";
 console.log("execute_luau roundtrip:", roundText.slice(0, 300));
 if (round.isError || !roundText.includes("42")) throw new Error("roundtrip failed: " + roundText);
+
+const bulk = await client.callTool({
+  name: "bulk_create",
+  arguments: { items: [{ className: "Part", name: "A" }, { className: "Part", name: "B" }], timeoutMs: 12000 },
+});
+if (bulk.isError) throw new Error("bulk_create failed: " + bulk.content?.[0]?.text);
+console.log("bulk_create roundtrip OK");
+
+const found = await client.callTool({
+  name: "find_instances",
+  arguments: { className: "Part", limit: 5, timeoutMs: 12000 },
+});
+if (found.isError) throw new Error("find_instances failed");
+console.log("find_instances roundtrip OK");
 await pluginSim;
+
+// server-side toolbox search (live catalog API, no plugin)
+const tb = await client.callTool({ name: "toolbox_search", arguments: { keyword: "wooden chair", limit: 3 } });
+const tbText = tb.content?.[0]?.text ?? "";
+console.log("toolbox_search:", tbText.slice(0, 300));
+if (tb.isError || !tbText.includes("assetId")) throw new Error("toolbox_search failed: " + tbText);
 
 await client.close();
 console.log("MCP_CHECK_DONE");

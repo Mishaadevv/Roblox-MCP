@@ -629,18 +629,20 @@ local function applyLighting()
 end
 
 -- ================= level =================
+print("[Backrooms] remotes OK, generating level...")
 applyLighting()
-local level = LevelGenerator.generate(Config.SEED, workspace)
-LevelState.current = level
-print(
-	"[Backrooms] Level generated (seed "
-		.. level.seed
-		.. ", "
-		.. #level.fixtures
-		.. " fixtures, "
-		.. #level.waters
-		.. " waters)"
-)
+local built: LevelState.Level? = nil
+local genOk, genErr = pcall(function()
+	built = LevelGenerator.generate(Config.SEED, workspace)
+end)
+if not genOk or not built then
+	warn("[Backrooms] procedural generation failed: " .. tostring(genErr) .. " — using fallback arena")
+	built = LevelGenerator.fallback(workspace)
+else
+	print("[Backrooms] level OK (seed " .. (built :: LevelState.Level).seed .. ")")
+end
+LevelState.current = built
+local level = LevelState.current :: LevelState.Level
 
 -- ================= flashlight =================
 local function attachFlashlight(char: Model, plr: Player)
@@ -1103,6 +1105,108 @@ function LevelGenerator.generate(seed: number, parent: Instance): LevelState.Lev
 		wallH = wallH,
 	}
 	return level
+end
+
+-- Emergency flat arena used when procedural generation throws.
+-- Guarantees the game is ALWAYS playable (spawn, 5+ waters, exit, lights).
+function LevelGenerator.fallback(parent: Instance): LevelState.Level
+	local folder = Instance.new("Folder")
+	folder.Name = "Level0Fallback"
+	local W, H = 120, 12
+	newPart({
+		Name = "Floor",
+		Size = Vector3.new(W, 2, W),
+		Position = Vector3.new(0, -1, 0),
+		Color = Config.CARPET_COLOR,
+		Material = Enum.Material.Fabric,
+	}, folder)
+	newPart({
+		Name = "Ceiling",
+		Size = Vector3.new(W, 1, W),
+		Position = Vector3.new(0, H + 0.5, 0),
+		Color = Config.CEILING_COLOR,
+		Material = Enum.Material.SmoothPlastic,
+	}, folder)
+	for _, w in
+		{
+			{ "N", Vector3.new(W, H, 1), Vector3.new(0, H / 2, -W / 2) },
+			{ "S", Vector3.new(W, H, 1), Vector3.new(0, H / 2, W / 2) },
+			{ "W", Vector3.new(1, H, W), Vector3.new(-W / 2, H / 2, 0) },
+			{ "E", Vector3.new(1, H, W), Vector3.new(W / 2, H / 2, 0) },
+		}
+	do
+		newPart({
+			Name = "Wall" .. (w :: any)[1],
+			Size = (w :: any)[2],
+			Position = (w :: any)[3],
+			Color = Config.WALL_COLOR,
+			Material = Enum.Material.Fabric,
+		}, folder)
+	end
+	local fixtures: { Vector3 } = {}
+	for gx = -1, 1 do
+		for gz = -1, 1 do
+			local pos = Vector3.new(gx * 30, H - 0.15, gz * 30)
+			local panel = newPart({
+				Name = "Panel",
+				Size = Vector3.new(5, 0.3, 5),
+				Position = pos,
+				Color = Config.PANEL_COLOR,
+				Material = Enum.Material.Neon,
+			}, folder)
+			panel.CanCollide = false
+			panel.CanTouch = false
+			panel.CastShadow = false
+			table.insert(fixtures, pos)
+		end
+	end
+	local waters: { Part } = {}
+	local prompts: { ProximityPrompt } = {}
+	for i = 1, Config.WATERS_SPAWNED do
+		local bottle, prompt = makeBottle(Vector3.new(-40 + i * 12, 0, 20))
+		bottle.Parent = folder
+		table.insert(waters, bottle)
+		table.insert(prompts, prompt)
+	end
+	local door = newPart({
+		Name = "ExitDoor",
+		Size = Vector3.new(4, 8, 0.6),
+		Position = Vector3.new(40, 4, -40),
+		Color = Color3.fromRGB(216, 186, 74),
+		Material = Enum.Material.SmoothPlastic,
+	}, folder)
+	buildExitSign(door)
+	local exitPrompt = Instance.new("ProximityPrompt")
+	exitPrompt.ActionText = "Escape"
+	exitPrompt.ObjectText = "Locked — find Almond Water"
+	exitPrompt.HoldDuration = 1.5
+	exitPrompt.MaxActivationDistance = 12
+	exitPrompt.RequiresLineOfSight = false
+	exitPrompt.Parent = door
+	local pad = newPart({
+		Name = "SpawnPad",
+		Size = Vector3.new(5, 0.4, 5),
+		Position = Vector3.new(-40, 0.2, -40),
+		Color = Color3.fromRGB(120, 110, 80),
+		Material = Enum.Material.SmoothPlastic,
+	}, folder)
+	pad.CanCollide = false
+	pad.CanTouch = false
+	folder.Parent = parent
+	return {
+		seed = -1,
+		folder = folder,
+		spawnCFrame = CFrame.new(-40, Config.SPAWN_HEIGHT, -40),
+		exitPosition = Vector3.new(40, 0, -40),
+		fixtures = fixtures,
+		waters = waters,
+		waterPrompts = prompts,
+		exitPrompt = exitPrompt,
+		tile = Config.TILE,
+		gridW = 15,
+		gridD = 15,
+		wallH = H,
+	}
 end
 
 return LevelGenerator
@@ -1890,6 +1994,20 @@ footer.TextColor3 = Color3.fromRGB(90, 85, 70)
 footer.Text = "headphones recommended  •  v1.0"
 footer.Parent = bg
 
+-- status line: loading progress / server errors (never leave the player guessing)
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "Status"
+statusLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+statusLabel.Position = UDim2.new(0.5, 0, 0.78, 0)
+statusLabel.Size = UDim2.new(0, 700, 0, 28)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 16
+statusLabel.TextColor3 = Color3.fromRGB(200, 120, 60)
+statusLabel.Text = ""
+statusLabel.TextWrapped = true
+statusLabel.Parent = bg
+
 -- how-to panel
 local howPanel = Instance.new("Frame")
 howPanel.Name = "HowPanel"
@@ -2073,6 +2191,7 @@ local function play()
 	end
 	playing = true
 	clickSound()
+	statusLabel.Text = "LOADING LEVEL..."
 	fadeTo(true, 0.6)
 	bg.Visible = false
 	death.Visible = false
@@ -2080,7 +2199,7 @@ local function play()
 	StartGameEvent:FireServer()
 	-- wait for a fresh LIVE character (the old corpse doesn't count on retry)
 	local char: Model? = nil
-	for _ = 1, 100 do
+	for _ = 1, 150 do -- up to ~15s: weak machines need time
 		local c = plr.Character
 		local h = c and c:FindFirstChildOfClass("Humanoid")
 		if c and h and (h :: Humanoid).Health > 0 then
@@ -2090,9 +2209,15 @@ local function play()
 		task.wait(0.1)
 	end
 	if not char then
+		-- NEVER trap the player on a black screen: come back with a reason
+		fadeTo(false, 0.4)
+		bg.Visible = true
+		statusLabel.Text = "SERVER DIDN'T SPAWN YOU (15s). Open View > Output, "
+			.. "look for red [Backrooms] errors and send them to the dev."
 		playing = false
 		return
 	end
+	statusLabel.Text = ""
 	local hum = char and char:WaitForChildOfClass("Humanoid") :: Humanoid?
 	if hum then
 		menuCam = false

@@ -327,4 +327,106 @@ function LevelGenerator.generate(seed: number, parent: Instance): LevelState.Lev
 	return level
 end
 
+-- Emergency flat arena used when procedural generation throws.
+-- Guarantees the game is ALWAYS playable (spawn, 5+ waters, exit, lights).
+function LevelGenerator.fallback(parent: Instance): LevelState.Level
+	local folder = Instance.new("Folder")
+	folder.Name = "Level0Fallback"
+	local W, H = 120, 12
+	newPart({
+		Name = "Floor",
+		Size = Vector3.new(W, 2, W),
+		Position = Vector3.new(0, -1, 0),
+		Color = Config.CARPET_COLOR,
+		Material = Enum.Material.Fabric,
+	}, folder)
+	newPart({
+		Name = "Ceiling",
+		Size = Vector3.new(W, 1, W),
+		Position = Vector3.new(0, H + 0.5, 0),
+		Color = Config.CEILING_COLOR,
+		Material = Enum.Material.SmoothPlastic,
+	}, folder)
+	for _, w in
+		{
+			{ "N", Vector3.new(W, H, 1), Vector3.new(0, H / 2, -W / 2) },
+			{ "S", Vector3.new(W, H, 1), Vector3.new(0, H / 2, W / 2) },
+			{ "W", Vector3.new(1, H, W), Vector3.new(-W / 2, H / 2, 0) },
+			{ "E", Vector3.new(1, H, W), Vector3.new(W / 2, H / 2, 0) },
+		}
+	do
+		newPart({
+			Name = "Wall" .. (w :: any)[1],
+			Size = (w :: any)[2],
+			Position = (w :: any)[3],
+			Color = Config.WALL_COLOR,
+			Material = Enum.Material.Fabric,
+		}, folder)
+	end
+	local fixtures: { Vector3 } = {}
+	for gx = -1, 1 do
+		for gz = -1, 1 do
+			local pos = Vector3.new(gx * 30, H - 0.15, gz * 30)
+			local panel = newPart({
+				Name = "Panel",
+				Size = Vector3.new(5, 0.3, 5),
+				Position = pos,
+				Color = Config.PANEL_COLOR,
+				Material = Enum.Material.Neon,
+			}, folder)
+			panel.CanCollide = false
+			panel.CanTouch = false
+			panel.CastShadow = false
+			table.insert(fixtures, pos)
+		end
+	end
+	local waters: { Part } = {}
+	local prompts: { ProximityPrompt } = {}
+	for i = 1, Config.WATERS_SPAWNED do
+		local bottle, prompt = makeBottle(Vector3.new(-40 + i * 12, 0, 20))
+		bottle.Parent = folder
+		table.insert(waters, bottle)
+		table.insert(prompts, prompt)
+	end
+	local door = newPart({
+		Name = "ExitDoor",
+		Size = Vector3.new(4, 8, 0.6),
+		Position = Vector3.new(40, 4, -40),
+		Color = Color3.fromRGB(216, 186, 74),
+		Material = Enum.Material.SmoothPlastic,
+	}, folder)
+	buildExitSign(door)
+	local exitPrompt = Instance.new("ProximityPrompt")
+	exitPrompt.ActionText = "Escape"
+	exitPrompt.ObjectText = "Locked — find Almond Water"
+	exitPrompt.HoldDuration = 1.5
+	exitPrompt.MaxActivationDistance = 12
+	exitPrompt.RequiresLineOfSight = false
+	exitPrompt.Parent = door
+	local pad = newPart({
+		Name = "SpawnPad",
+		Size = Vector3.new(5, 0.4, 5),
+		Position = Vector3.new(-40, 0.2, -40),
+		Color = Color3.fromRGB(120, 110, 80),
+		Material = Enum.Material.SmoothPlastic,
+	}, folder)
+	pad.CanCollide = false
+	pad.CanTouch = false
+	folder.Parent = parent
+	return {
+		seed = -1,
+		folder = folder,
+		spawnCFrame = CFrame.new(-40, Config.SPAWN_HEIGHT, -40),
+		exitPosition = Vector3.new(40, 0, -40),
+		fixtures = fixtures,
+		waters = waters,
+		waterPrompts = prompts,
+		exitPrompt = exitPrompt,
+		tile = Config.TILE,
+		gridW = 15,
+		gridD = 15,
+		wallH = H,
+	}
+end
+
 return LevelGenerator

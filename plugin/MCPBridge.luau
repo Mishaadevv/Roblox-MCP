@@ -1079,6 +1079,263 @@ handlers["redo"] = function(_params)
 	return { redone = true }
 end
 
+-- ---------- batch + search ----------
+
+handlers["bulk_create"] = function(params)
+	assert(type(params.items) == "table" and #params.items > 0, "items array required")
+	assert(#params.items <= 500, "max 500 items per call")
+	ChangeHistoryService:TryBeginRecording("MCP bulk_create")
+	local created = {}
+	for _, spec in params.items do
+		assert(type(spec.className) == "string", "each item needs className")
+		local parent = resolvePath(spec.parent or "Workspace") or error("Parent not found: " .. tostring(spec.parent))
+		local inst = Instance.new(spec.className)
+		if spec.name then
+			inst.Name = spec.name
+		end
+		if spec.properties then
+			applyProperties(inst, spec.properties)
+		end
+		inst.Parent = parent
+		table.insert(created, { Path = fullPath(inst), Name = inst.Name, ClassName = inst.ClassName })
+	end
+	ChangeHistoryService:FinishRecording("MCP bulk_create")
+	return { created = created, count = #created }
+end
+
+handlers["find_instances"] = function(params)
+	local nameSub = if params.nameContains then string.lower(tostring(params.nameContains)) else nil
+	local classFilter = params.className
+	local limit = math.clamp(tonumber(params.limit) or 100, 1, 500)
+	local root: Instance = game
+	if params.root and params.root ~= "" and params.root ~= "game" then
+		root = resolvePath(params.root) or error("Root not found: " .. tostring(params.root))
+	end
+	local hits = {}
+	local function walk(inst: Instance): boolean
+		local nameOk = true
+		local classOk = true
+		if nameSub then
+			nameOk = string.find(string.lower(inst.Name), nameSub, 1, true) ~= nil
+		end
+		if classFilter then
+			classOk = inst.ClassName == classFilter
+		end
+		if nameOk and classOk then
+			table.insert(hits, { Path = fullPath(inst), Name = inst.Name, ClassName = inst.ClassName })
+			if #hits >= limit then
+				return true
+			end
+		end
+		for _, c in inst:GetChildren() do
+			if walk(c) then
+				return true
+			end
+		end
+		return false
+	end
+	if root == game then
+		for _, svc in game:GetChildren() do
+			if walk(svc) then
+				break
+			end
+		end
+	else
+		walk(root)
+	end
+	return { hits = hits, count = #hits }
+end
+
+handlers["get_children"] = function(params)
+	local inst = resolvePath(params.path) or error("Instance not found: " .. tostring(params.path))
+	local out = {}
+	for _, c in inst:GetChildren() do
+		table.insert(out, { Path = fullPath(c), Name = c.Name, ClassName = c.ClassName })
+	end
+	table.sort(out, function(a, b)
+		return a.Name < b.Name
+	end)
+	return { Path = fullPath(inst), children = out, count = #out }
+end
+
+-- ---------- playtest combo + performance ----------
+
+local function startSolo()
+	if RunService:IsRunning() then
+		return
+	end
+	pressKey(Enum.KeyCode.F5)
+	task.wait(1)
+end
+
+local function startRun()
+	if RunService:IsRunning() then
+		return
+	end
+	local okRun = pcall(function()
+		RunService:Run()
+	end)
+	if not okRun then
+		pressKey(Enum.KeyCode.F8)
+		task.wait(0.5)
+	end
+end
+
+local function stopAll()
+	if not RunService:IsRunning() then
+		return
+	end
+	pcall(function()
+		RunService:Stop()
+	end)
+	task.wait(0.5)
+end
+
+handlers["playtest"] = function(params)
+	local mode = params.mode or "solo"
+	local seconds = math.clamp(tonumber(params.seconds) or 8, 1, 120)
+	local outputLimit = math.clamp(tonumber(params.outputLimit) or 80, 1, 500)
+	table.clear(outputBuffer)
+	pushOutput("MCP playtest starting (" .. mode .. ", " .. seconds .. "s)")
+	if mode == "run" then
+		startRun()
+	else
+		startSolo()
+	end
+	task.wait(seconds)
+	local running = RunService:IsRunning()
+	local start = math.max(1, #outputBuffer - outputLimit + 1)
+	local lines = {}
+	for i = start, #outputBuffer do
+		table.insert(lines, outputBuffer[i])
+	end
+	stopAll()
+	task.wait(0.5)
+	return {
+		mode = mode,
+		ranSeconds = seconds,
+		wasRunning = running,
+		stopped = not RunService:IsRunning(),
+		output = lines,
+		playState = {
+			isRunning = RunService:IsRunning(),
+			isRunMode = RunService:IsRunMode(),
+			isServer = RunService:IsServer(),
+			isClient = RunService:IsClient(),
+		},
+	}
+end
+
+handlers["get_performance"] = function(_params)
+	-- version-proof: harvest every numeric stat under Stats instead of
+	-- hardcoding paths that move between Studio releases
+	local statsSvc = game:GetService("Stats")
+	local out: { [string]: any } = {}
+	local n = 0
+	local function harvest(inst: Instance, prefix: string)
+		for _, d in inst:GetChildren() do
+			if n >= 120 then
+				return
+			end
+			if d:IsA("NumberValue") or d:IsA("IntValue") then
+				n += 1
+				out[prefix .. d.Name] = (d :: any).Value
+			else
+				harvest(d, prefix .. d.Name .. ".")
+			end
+		end
+	end
+	pcall(function()
+		harvest(statsSvc, "")
+	end)
+	out.runState = {
+		isRunning = RunService:IsRunning(),
+		isRunMode = RunService:IsRunMode(),
+		isStudio = RunService:IsStudio(),
+	}
+	return out
+end
+
+-- ---------- playtest player helpers ----------
+
+local function findPlayer(name: string?): Player?
+	local players = game:GetService("Players"):GetPlayers()
+	if #players == 0 then
+		return nil
+	end
+	if name and name ~= "" then
+		for _, p in players do
+			if p.Name == name or string.lower(p.Name) == string.lower(name) then
+				return p
+			end
+		end
+		return nil
+	end
+	return players[1]
+end
+
+local function decodePosition(raw: any): Vector3
+	local v = decodeValue(raw)
+	if typeof(v) == "Vector3" then
+		return v
+	end
+	if type(v) == "table" and (v.x or v.X) then
+		return Vector3.new(v.x or v.X, v.y or v.Y, v.z or v.Z)
+	end
+	error("position must be {x,y,z} or a Vector3 encoding")
+	return Vector3.new() -- unreachable, satisfies the type checker
+end
+
+handlers["teleport_player"] = function(params)
+	local plr = findPlayer(params.player)
+	if not plr then
+		error("No such player (is a playtest running?)")
+	end
+	local char = plr.Character
+	if not char then
+		error("Player has no character yet")
+	end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		error("No HumanoidRootPart")
+	end
+	local pos = decodePosition(params.position)
+	root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+	return { player = plr.Name, to = encodeValue(pos) }
+end
+
+handlers["respawn_player"] = function(params)
+	local plr = findPlayer(params.player)
+	if not plr then
+		error("No such player (is a playtest running?)")
+	end
+	local ok, err = pcall(function()
+		plr:LoadCharacter()
+	end)
+	if not ok then
+		error(tostring(err))
+	end
+	return { player = plr.Name, respawned = true }
+end
+
+handlers["kill_player"] = function(params)
+	local plr = findPlayer(params.player)
+	if not plr then
+		error("No such player (is a playtest running?)")
+	end
+	local char = plr.Character
+	if not char then
+		error("Player has no character yet")
+	end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then
+		error("No Humanoid")
+	end
+	local humanoid = hum :: Humanoid
+	humanoid.Health = 0
+	return { player = plr.Name, killed = true }
+end
+
 -- ============================== dispatch ==============================
 
 local function dispatch(cmd: any): (boolean, any)

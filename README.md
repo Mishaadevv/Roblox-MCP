@@ -18,17 +18,18 @@ MCPBridge.luau plugin inside Roblox Studio (HttpService long-poll)
 
 Why this shape: Studio plugins **cannot accept** inbound connections, but they **can** reach localhost via `HttpService`. So the plugin long-polls the bridge ("any commands?"), executes them, and posts results back via `POST /result`.
 
-## Features (40 tools)
+## Features (50 tools)
 
 | Group | Tools |
 |---|---|
 | Studio | `studio_status`, `studio_launch`, `studio_open_place`, `studio_close`, `studio_list_places` |
 | Bridge | `bridge_status` |
 | Full access | `execute_luau` — any Luau in Studio context (a Command Bar on steroids) |
-| Scene | `get_scene`, `get_instance`, `create_instance`, `set_property`, `set_properties`, `delete_instance`, `rename_instance`, `reparent_instance`, `duplicate_instance`, `get_selection`, `set_selection` |
+| Scene | `get_scene`, `get_children`, `get_instance`, `find_instances`, `create_instance`, `bulk_create`, `set_property`, `set_properties`, `delete_instance`, `rename_instance`, `reparent_instance`, `duplicate_instance`, `get_selection`, `set_selection` |
 | Scripts | `list_scripts`, `read_script`, `write_script`, `create_script`, `delete_script`, `grep_scripts` |
-| Playtesting | `play_solo` (F5), `run_game` (F8), `stop_playtest`, `get_play_state`, `get_output`, `clear_output` |
-| GUI / world | `create_gui`, `insert_asset` (Toolbox by assetId), `save_place`, `get_camera`, `set_camera`, `get_lighting`, `set_lighting`, `get_workspace_info`, `undo`, `redo` |
+| Playtesting | `play_solo` (F5), `run_game` (F8), `stop_playtest`, `get_play_state`, `playtest` (one-call run+output+stop), `get_output`, `clear_output`, `get_performance`, `teleport_player`, `respawn_player`, `kill_player` |
+| Toolbox | `toolbox_search` (catalog search by keyword), `toolbox_info` (asset details), `insert_asset` (by assetId) |
+| GUI / world | `create_gui`, `save_place`, `get_camera`, `set_camera`, `get_lighting`, `set_lighting`, `get_workspace_info`, `undo`, `redo` |
 
 Property values support Roblox types via encoding:
 `{"__type":"Vector3","value":[10,5,0]}`, `Color3` (RGB 0–255), `UDim2`, `CFrame` (12 numbers), `BrickColor` (`{"__type":"BrickColor","value":"Bright red"}`), Enums (`"Enum.Material.SmoothPlastic"`).
@@ -89,7 +90,7 @@ node scripts/mcp-check.mjs   # full MCP roundtrip over stdio
 
 **Cursor / VS Code (mcp.json)** — see `examples/mcp.json`.
 
-Restart the client. The agent will see ~40 tools: `studio_*`, `execute_luau`, `get_scene`, …
+Restart the client. The agent will see ~50 tools: `studio_*`, `execute_luau`, `get_scene`, …
 
 ## Example prompts for the agent
 
@@ -155,7 +156,7 @@ Roblox-MCP/
 │   ├── index.ts     # MCP stdio server
 │   ├── bridge.ts    # HTTP bridge (long-poll) for the plugin
 │   ├── studio.ts    # find/launch/close Studio, scan .rbxl files
-│   └── tools.ts     # 40 MCP tools
+│   └── tools.ts     # 50 MCP tools
 ├── plugin/
 │   └── MCPBridge.luau  # Studio plugin (drop into the Plugins folder)
 ├── backrooms/       # example game: BACKROOMS Level 0 horror (Rojo project + built .rbxlx)

@@ -109,6 +109,20 @@ footer.TextColor3 = Color3.fromRGB(90, 85, 70)
 footer.Text = "headphones recommended  •  v1.0"
 footer.Parent = bg
 
+-- status line: loading progress / server errors (never leave the player guessing)
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "Status"
+statusLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+statusLabel.Position = UDim2.new(0.5, 0, 0.78, 0)
+statusLabel.Size = UDim2.new(0, 700, 0, 28)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 16
+statusLabel.TextColor3 = Color3.fromRGB(200, 120, 60)
+statusLabel.Text = ""
+statusLabel.TextWrapped = true
+statusLabel.Parent = bg
+
 -- how-to panel
 local howPanel = Instance.new("Frame")
 howPanel.Name = "HowPanel"
@@ -292,6 +306,7 @@ local function play()
 	end
 	playing = true
 	clickSound()
+	statusLabel.Text = "LOADING LEVEL..."
 	fadeTo(true, 0.6)
 	bg.Visible = false
 	death.Visible = false
@@ -299,7 +314,7 @@ local function play()
 	StartGameEvent:FireServer()
 	-- wait for a fresh LIVE character (the old corpse doesn't count on retry)
 	local char: Model? = nil
-	for _ = 1, 100 do
+	for _ = 1, 150 do -- up to ~15s: weak machines need time
 		local c = plr.Character
 		local h = c and c:FindFirstChildOfClass("Humanoid")
 		if c and h and (h :: Humanoid).Health > 0 then
@@ -309,9 +324,15 @@ local function play()
 		task.wait(0.1)
 	end
 	if not char then
+		-- NEVER trap the player on a black screen: come back with a reason
+		fadeTo(false, 0.4)
+		bg.Visible = true
+		statusLabel.Text = "SERVER DIDN'T SPAWN YOU (15s). Open View > Output, "
+			.. "look for red [Backrooms] errors and send them to the dev."
 		playing = false
 		return
 	end
+	statusLabel.Text = ""
 	local hum = char and char:WaitForChildOfClass("Humanoid") :: Humanoid?
 	if hum then
 		menuCam = false

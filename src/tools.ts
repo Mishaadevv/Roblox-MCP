@@ -463,4 +463,218 @@ export function registerTools(server: McpServer, bridge: Bridge) {
       throw new Error(needPluginHint(e));
     }
   });
+
+  // ---------- Toolbox (no plugin needed: direct catalog API) ----------
+
+  /** POST to a Roblox endpoint, handling the mandatory x-csrf-token handshake. */
+  async function robloxPost(url: string, body: unknown): Promise<Response> {
+    const doPost = (token: string) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-csrf-token": token },
+        body: JSON.stringify(body),
+      });
+    let res = await doPost("");
+    if (res.status === 403) {
+      const token = res.headers.get("x-csrf-token") ?? "";
+      if (!token) throw new Error("Catalog refused the request (no x-csrf-token issued).");
+      res = await doPost(token);
+    }
+    return res;
+  }
+
+  interface CatalogDetail {
+    id: number;
+    name?: string;
+    description?: string;
+    creatorName?: string;
+    creatorType?: string;
+    price?: number;
+    favoriteCount?: number;
+  }
+
+  async function enrichWithDetails(hits: { assetId: number; itemType: string }[]) {
+    const assetIds = hits.filter((h) => h.itemType === "Asset").map((h) => h.assetId).slice(0, 30);
+    if (assetIds.length === 0) return hits;
+    const res = await robloxPost("https://catalog.roblox.com/v1/catalog/items/details", {
+      items: assetIds.map((id) => ({ id, itemType: 1 })),
+    });
+    if (!res.ok) return hits; // search results still useful without names
+    const data = (await res.json()) as { data?: CatalogDetail[] };
+    const byId = new Map((data.data ?? []).map((d) => [d.id, d]));
+    return hits.map((h) => {
+      const d = byId.get(h.assetId);
+      return d
+        ? {
+            assetId: h.assetId,
+            itemType: h.itemType,
+            name: d.name ?? null,
+            creator: d.creatorName ?? null,
+            creatorType: d.creatorType ?? null,
+            price: d.price ?? 0,
+          }
+        : h;
+    });
+  }
+
+  server.tool(
+    "toolbox_search",
+    "Search the Roblox Toolbox/catalog for models, meshes, images, etc. Returns asset IDs you can pass to insert_asset. No plugin required.",
+    {
+      keyword: z.string().describe("Search text, e.g. 'medieval castle', 'low poly tree'"),
+      category: z.string().optional().describe("Catalog category: Models (default), Meshes, Images, Audio, Plugins, Videos"),
+      limit: z.number().optional().describe("Results per page, snapped to 10/28/30/50/60/100/120 (default 10)"),
+      creator: z.string().optional().describe("Filter: 'Roblox' (official) or a username"),
+    },
+    async ({ keyword, category, limit, creator }) => {
+      // catalog API only accepts these page sizes
+      const allowed = [10, 28, 30, 50, 60, 100, 120];
+      const want = Math.min(Math.max(limit ?? 10, 1), 120);
+      const pageSize = allowed.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
+      const params = new URLSearchParams({
+        keyword,
+        category: category ?? "Models",
+        limit: String(pageSize),
+      });
+      if (creator) params.set("creatorName", creator);
+      const res = await fetch(`https://catalog.roblox.com/v1/search/items?${params}`);
+      if (!res.ok) throw new Error(`Catalog search failed: HTTP ${res.status}`);
+      const data = (await res.json()) as { data?: { id: number; itemType: string }[] };
+      const hits = (data.data ?? []).map((it) => ({ assetId: it.id, itemType: it.itemType }));
+      return okText(await enrichWithDetails(hits));
+    }
+  );
+
+  server.tool(
+    "toolbox_info",
+    "Get details for catalog asset IDs (name, type, creator, description). No plugin required.",
+    {
+      assetIds: z.array(z.number()).describe("Up to 100 numeric asset IDs"),
+    },
+    async ({ assetIds }) => {
+      if (assetIds.length === 0 || assetIds.length > 100) throw new Error("Provide 1..100 asset IDs.");
+      const res = await robloxPost("https://catalog.roblox.com/v1/catalog/items/details", {
+        items: assetIds.map((id) => ({ id, itemType: 1 })),
+      });
+      if (!res.ok) throw new Error(`Catalog details failed: HTTP ${res.status}`);
+      const data = (await res.json()) as { data?: unknown };
+      return okText(data.data ?? data);
+    }
+  );
+
+  // ---------- Batch + search (plugin) ----------
+
+  server.tool(
+    "bulk_create",
+    "Create MANY instances in ONE call (one undo step, one roundtrip). Each item: {className, name?, parent?, properties?}. Building a whole room in a single call.",
+    {
+      items: z.array(z.any()).describe("Array of {className, name?, parent? (default Workspace), properties?}"),
+    },
+    async (a) => {
+      try {
+        return await viaBridge(bridge, "bulk_create", { ...a }, 60000);
+      } catch (e) {
+        throw new Error(needPluginHint(e));
+      }
+    }
+  );
+
+  server.tool(
+    "find_instances",
+    "Search the whole game by name and/or class: 'all Scripts with Boss in the name'. Faster than dumping the full scene.",
+    {
+      nameContains: z.string().optional().describe("Case-insensitive substring of Name"),
+      className: z.string().optional().describe("Exact ClassName, e.g. 'Script', 'Part', 'ProximityPrompt'"),
+      root: z.string().optional().describe("Dotted root to search under (default game)"),
+      limit: z.number().optional().describe("Max hits (default 100, max 500)"),
+    },
+    async (a) => {
+      try {
+        return await viaBridge(bridge, "find_instances", { ...a });
+      } catch (e) {
+        throw new Error(needPluginHint(e));
+      }
+    }
+  );
+
+  server.tool("get_children", "List direct children of one instance (shallow: Name/ClassName/Path).", {
+    path: z.string(),
+  }, async (a) => {
+    try {
+      return await viaBridge(bridge, "get_children", { ...a });
+    } catch (e) {
+      throw new Error(needPluginHint(e));
+    }
+  });
+
+  // ---------- One-call playtest (plugin combo) ----------
+
+  server.tool(
+    "playtest",
+    "FULL playtest in ONE call: starts Play Solo (or Run), waits N seconds, captures Output + play state, stops, returns the report. The core of the agent debug loop.",
+    {
+      mode: z.enum(["solo", "run"]).optional().describe("'solo' = Play Solo F5 (default), 'run' = Run F8"),
+      seconds: z.number().optional().describe("How long to let it run, 1..120 (default 8)"),
+      outputLimit: z.number().optional().describe("Output lines to return (default 80)"),
+    },
+    async (a) => {
+      try {
+        const secs = Math.min(Math.max(a.seconds ?? 8, 1), 120);
+        return await viaBridge(bridge, "playtest", { ...a, seconds: secs }, (secs + 25) * 1000);
+      } catch (e) {
+        throw new Error(needPluginHint(e));
+      }
+    }
+  );
+
+  server.tool(
+    "get_performance",
+    "Read live Studio performance stats (FPS, frame time, physics, contacts, memory). Diagnose 'weak laptop' vs real bugs.",
+    {},
+    async () => {
+      try {
+        return await viaBridge(bridge, "get_performance", {});
+      } catch (e) {
+        throw new Error(needPluginHint(e));
+      }
+    }
+  );
+
+  // ---------- Playtest player helpers (plugin) ----------
+
+  server.tool(
+    "teleport_player",
+    "Teleport a playtest character to a position (testing checkpoints, boss rooms, mazes without walking).",
+    {
+      position: z.any().describe("{x,y,z} or {__type:'Vector3',value:[x,y,z]}"),
+      player: z.string().optional().describe("Player name (default: first player)"),
+    },
+    async (a) => {
+      try {
+        return await viaBridge(bridge, "teleport_player", { ...a });
+      } catch (e) {
+        throw new Error(needPluginHint(e));
+      }
+    }
+  );
+
+  server.tool("respawn_player", "Force-respawn a playtest character (tests spawn logic, retry buttons).", {
+    player: z.string().optional().describe("Player name (default: first player)"),
+  }, async (a) => {
+    try {
+      return await viaBridge(bridge, "respawn_player", { ...a });
+    } catch (e) {
+      throw new Error(needPluginHint(e));
+    }
+  });
+
+  server.tool("kill_player", "Kill a playtest character (tests death screens, respawn, Entity kills).", {
+    player: z.string().optional().describe("Player name (default: first player)"),
+  }, async (a) => {
+    try {
+      return await viaBridge(bridge, "kill_player", { ...a });
+    } catch (e) {
+      throw new Error(needPluginHint(e));
+    }
+  });
 }
